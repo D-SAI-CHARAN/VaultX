@@ -1,7 +1,7 @@
 // Authentication Service - Zero Knowledge Vault
 // Supabase auth is for IDENTITY ONLY, not vault access
 
-import { supabase } from './supabaseClient';
+import { getSupabase } from './supabaseClient';
 import type { User } from '../../types';
 
 export interface AuthResult {
@@ -16,17 +16,16 @@ export interface AuthResult {
  */
 export async function signUp(email: string, password: string): Promise<AuthResult> {
   try {
+    const supabase = getSupabase();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // Disable email confirmation for easier development
         emailRedirectTo: undefined,
       },
     });
     
     if (error) {
-      // Handle rate limit error with user-friendly message
       if (error.message.includes('rate limit') || error.message.includes('Rate limit')) {
         return { 
           success: false, 
@@ -37,7 +36,6 @@ export async function signUp(email: string, password: string): Promise<AuthResul
     }
     
     if (data.user) {
-      // Check if email confirmation is required
       if (data.user.identities && data.user.identities.length === 0) {
         return { 
           success: false, 
@@ -65,13 +63,13 @@ export async function signUp(email: string, password: string): Promise<AuthResul
  */
 export async function signIn(email: string, password: string): Promise<AuthResult> {
   try {
+    const supabase = getSupabase();
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     
     if (error) {
-      // Handle email not confirmed error
       if (error.message.includes('Email not confirmed') || error.message.includes('email not confirmed')) {
         return { 
           success: false, 
@@ -101,6 +99,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
  * Sign out
  */
 export async function signOut(): Promise<void> {
+  const supabase = getSupabase();
   await supabase.auth.signOut();
 }
 
@@ -109,6 +108,7 @@ export async function signOut(): Promise<void> {
  */
 export async function getSession(): Promise<User | null> {
   try {
+    const supabase = getSupabase();
     const { data: { session } } = await supabase.auth.getSession();
     
     if (session?.user) {
@@ -128,6 +128,7 @@ export async function getSession(): Promise<User | null> {
  * Listen to auth state changes
  */
 export function onAuthStateChange(callback: (user: User | null) => void) {
+  const supabase = getSupabase();
   return supabase.auth.onAuthStateChange((event, session) => {
     if (session?.user) {
       callback({
