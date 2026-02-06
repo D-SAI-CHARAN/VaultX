@@ -46,6 +46,8 @@ export async function pickDocument(): Promise<{
     }
     
     const file = result.assets[0];
+    console.log('Picked file:', file);
+    
     return {
       success: true,
       uri: file.uri,
@@ -54,7 +56,36 @@ export async function pickDocument(): Promise<{
       size: file.size,
     };
   } catch (error: any) {
+    console.error('Document picker error:', error);
     return { success: false, error: error.message || 'Failed to pick document' };
+  }
+}
+
+/**
+ * Read file content as base64
+ */
+async function readFileAsBase64(uri: string): Promise<string> {
+  try {
+    console.log('Reading file from:', uri);
+    
+    // Check if file exists
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    console.log('File info:', fileInfo);
+    
+    if (!fileInfo.exists) {
+      throw new Error('File does not exist');
+    }
+    
+    // Read file as base64
+    const content = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    
+    console.log('File read successfully, length:', content.length);
+    return content;
+  } catch (error: any) {
+    console.error('Error reading file:', error);
+    throw new Error(`Failed to read file: ${error.message}`);
   }
 }
 
@@ -72,17 +103,34 @@ export async function uploadDocument(
   onProgress?: (progress: UploadProgress) => void
 ): Promise<DocumentUploadResult> {
   try {
+    console.log('=== Starting document upload ===');
+    console.log('URI:', uri);
+    console.log('Name:', name);
+    console.log('Size:', size);
+    console.log('User:', userId);
+    
     // Stage 1: Read file as base64
     onProgress?.({ stage: 'encrypting', progress: 0 });
     
-    const fileContent = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    let fileContent: string;
+    try {
+      fileContent = await readFileAsBase64(uri);
+    } catch (readError: any) {
+      console.error('File read error:', readError);
+      return { success: false, error: `File read error: ${readError.message}` };
+    }
     
+    if (!fileContent || fileContent.length === 0) {
+      return { success: false, error: 'File is empty or could not be read' };
+    }
+    
+    console.log('File content length:', fileContent.length);
     onProgress?.({ stage: 'encrypting', progress: 30 });
     
     // Stage 2: Encrypt document
+    console.log('Encrypting document...');
     const encryptionResult = await encryptDocument(fileContent, masterKey);
+    console.log('Encryption complete');
     
     onProgress?.({ stage: 'encrypting', progress: 60 });
     
@@ -92,17 +140,22 @@ export async function uploadDocument(
       dataIV: encryptionResult.dataIV,
     });
     
+    console.log('Encrypted payload length:', encryptedPayload.length);
     onProgress?.({ stage: 'sharding', progress: 70 });
     
     // Stage 3: Split into shards
+    console.log('Splitting into shards...');
     const shards = splitIntoShards(encryptedPayload);
+    console.log('Created', shards.length, 'shards');
     
     onProgress?.({ stage: 'sharding', progress: 80 });
     
     // Stage 4: Upload shards
+    console.log('Uploading shards...');
     onProgress?.({ stage: 'uploading', progress: 0, currentShard: 0, totalShards: shards.length });
     
     const uploadResult = await uploadAllShards(shards, userId, (current, total) => {
+      console.log(`Uploaded shard ${current}/${total}`);
       onProgress?.({
         stage: 'uploading',
         progress: Math.round((current / total) * 100),
@@ -112,8 +165,11 @@ export async function uploadDocument(
     });
     
     if (!uploadResult.success) {
+      console.error('Upload failed:', uploadResult.error);
       return { success: false, error: uploadResult.error };
     }
+    
+    console.log('All shards uploaded:', uploadResult.shardIds);
     
     // Create document metadata (stored locally only)
     const document: VaultDocument = {
@@ -129,12 +185,13 @@ export async function uploadDocument(
     };
     
     // Store shard indices locally (needed for reassembly)
-    // This is stored encrypted in local metadata
     const shardIndices = shards.map((s, i) => ({ id: s.id, index: i }));
     (document as any).shardIndices = shardIndices;
     
+    console.log('=== Upload complete ===');
     return { success: true, document };
   } catch (error: any) {
+    console.error('Upload exception:', error);
     return { success: false, error: error.message || 'Upload failed' };
   }
 }
