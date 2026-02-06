@@ -133,8 +133,13 @@ export async function downloadShard(
       return { success: false, error: 'No data received' };
     }
     
-    // Convert blob to string
-    const text = await data.text();
+    // Convert blob to string using FileReader
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read blob'));
+      reader.readAsText(data);
+    });
     
     console.log(`Shard ${shardId} downloaded, size: ${text.length}`);
     return { success: true, data: text };
