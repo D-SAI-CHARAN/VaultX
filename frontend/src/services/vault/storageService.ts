@@ -12,6 +12,30 @@ export interface UploadResult {
 }
 
 /**
+ * Check if storage bucket exists and is accessible
+ */
+export async function checkBucketAccess(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.storage.getBucket(STORAGE_BUCKET);
+    
+    if (error) {
+      console.error('Bucket access error:', error);
+      return { 
+        success: false, 
+        error: `Storage bucket "${STORAGE_BUCKET}" not found or not accessible. Please create it in Supabase Dashboard → Storage.` 
+      };
+    }
+    
+    console.log('Bucket access OK:', data);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Bucket check exception:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Upload a single shard to Supabase Storage
  * Filename is the random UUID - no relation to original file
  */
@@ -22,27 +46,49 @@ export async function uploadShard(
   try {
     const supabase = getSupabase();
     
-    // Convert string to Blob for upload
-    const blob = new Blob([shard.data], { type: 'application/octet-stream' });
-    
     // Path: userId/shardUUID (user folder for RLS)
     const filePath = `${userId}/${shard.id}`;
     
-    console.log(`Uploading shard ${shard.id} to ${filePath}, size: ${shard.data.length}`);
+    console.log(`Uploading shard ${shard.id} to ${filePath}, data length: ${shard.data.length}`);
+    
+    // Convert string to ArrayBuffer for upload
+    const encoder = new TextEncoder();
+    const uint8Array = encoder.encode(shard.data);
     
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(filePath, blob, {
+      .upload(filePath, uint8Array, {
         contentType: 'application/octet-stream',
-        upsert: true, // Allow overwrite for retries
+        upsert: true,
       });
     
     if (error) {
-      console.error('Shard upload error:', error);
+      console.error('Shard upload error:', JSON.stringify(error));
+      
+      // Provide more specific error messages
+      if (error.message.includes('Bucket not found')) {
+        return { 
+          success: false, 
+          error: `Storage bucket "${STORAGE_BUCKET}" does not exist. Create it in Supabase Dashboard → Storage.` 
+        };
+      }
+      if (error.message.includes('row-level security') || error.message.includes('policy')) {
+        return { 
+          success: false, 
+          error: 'Storage policy error. Please add INSERT policy for the bucket in Supabase.' 
+        };
+      }
+      if (error.message.includes('Invalid JWT') || error.message.includes('not authenticated')) {
+        return { 
+          success: false, 
+          error: 'Authentication error. Please sign out and sign in again.' 
+        };
+      }
+      
       return { success: false, error: error.message };
     }
     
-    console.log(`Shard ${shard.id} uploaded successfully`);
+    console.log(`Shard ${shard.id} uploaded successfully:`, data);
     return { success: true, shardId: shard.id };
   } catch (error: any) {
     console.error('Shard upload exception:', error);
@@ -58,6 +104,12 @@ export async function uploadAllShards(
   userId: string,
   onProgress?: (current: number, total: number) => void
 ): Promise<{ success: boolean; shardIds?: string[]; error?: string }> {
+  // First check if bucket is accessible
+  const bucketCheck = await checkBucketAccess();
+  if (!bucketCheck.success) {
+    return { success: false, error: bucketCheck.error };
+  }
+  
   const shardIds: string[] = [];
   
   console.log(`Starting upload of ${shards.length} shards for user ${userId}`);
@@ -66,10 +118,9 @@ export async function uploadAllShards(
     const result = await uploadShard(shards[i], userId);
     
     if (!result.success) {
-      // Cleanup already uploaded shards on failure
       console.error(`Failed at shard ${i + 1}, cleaning up...`);
       await cleanupShards(shardIds, userId);
-      return { success: false, error: `Failed to upload shard ${i + 1}: ${result.error}` };
+      return { success: false, error: `Shard ${i + 1}/${shards.length} failed: ${result.error}` };
     }
     
     shardIds.push(result.shardId!);
