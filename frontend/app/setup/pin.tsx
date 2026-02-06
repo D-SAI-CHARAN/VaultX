@@ -18,7 +18,25 @@ export default function PinSetupScreen() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { setupPins } = useAuthStore();
+  const { setupPins, signOut, user } = useAuthStore();
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out and start over?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            router.replace('/auth/signin');
+          },
+        },
+      ]
+    );
+  };
 
   const handlePinComplete = async (pin: string) => {
     setError('');
@@ -101,6 +119,18 @@ export default function PinSetupScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header with user info and sign out */}
+      <View style={styles.header}>
+        <View style={styles.userInfo}>
+          <Ionicons name="person-circle" size={20} color={theme.colors.textMuted} />
+          <Text style={styles.userEmail} numberOfLines={1}>{user?.email || 'Not signed in'}</Text>
+        </View>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <Ionicons name="log-out-outline" size={20} color={theme.colors.textMuted} />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.progress}>
         <View style={[
           styles.progressStep,
@@ -144,6 +174,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userEmail: {
+    fontSize: theme.typography.caption.fontSize,
+    color: theme.colors.textMuted,
+    marginLeft: theme.spacing.xs,
+    maxWidth: 150,
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+  },
+  signOutText: {
+    fontSize: theme.typography.caption.fontSize,
+    color: theme.colors.textMuted,
+    marginLeft: theme.spacing.xs,
   },
   progress: {
     flexDirection: 'row',
