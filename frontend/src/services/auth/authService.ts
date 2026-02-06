@@ -71,6 +71,13 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     });
     
     if (error) {
+      // Handle email not confirmed error
+      if (error.message.includes('Email not confirmed') || error.message.includes('email not confirmed')) {
+        return { 
+          success: false, 
+          error: 'Email not confirmed. Please check your email or disable email confirmation in Supabase dashboard.' 
+        };
+      }
       return { success: false, error: error.message };
     }
     
