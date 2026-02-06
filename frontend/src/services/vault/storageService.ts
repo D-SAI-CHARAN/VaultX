@@ -2,9 +2,8 @@
 // Uploads ONLY encrypted shards with random UUID filenames
 // Server sees meaningless blobs - no metadata
 
-import { supabase, STORAGE_BUCKET } from '../auth/supabaseClient';
+import { getSupabase, STORAGE_BUCKET } from '../auth/supabaseClient';
 import type { Shard } from '../crypto/sharding';
-import { decode as base64Decode } from 'base-64';
 
 export interface UploadResult {
   success: boolean;
@@ -21,25 +20,32 @@ export async function uploadShard(
   userId: string
 ): Promise<UploadResult> {
   try {
-    // Convert base64 string to Uint8Array for upload
-    const binaryData = Uint8Array.from(shard.data.split('').map(c => c.charCodeAt(0)));
+    const supabase = getSupabase();
+    
+    // Convert string to Blob for upload
+    const blob = new Blob([shard.data], { type: 'application/octet-stream' });
     
     // Path: userId/shardUUID (user folder for RLS)
     const filePath = `${userId}/${shard.id}`;
     
-    const { error } = await supabase.storage
+    console.log(`Uploading shard ${shard.id} to ${filePath}, size: ${shard.data.length}`);
+    
+    const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(filePath, binaryData, {
-        contentType: 'application/octet-stream', // Generic binary type
-        upsert: false,
+      .upload(filePath, blob, {
+        contentType: 'application/octet-stream',
+        upsert: true, // Allow overwrite for retries
       });
     
     if (error) {
+      console.error('Shard upload error:', error);
       return { success: false, error: error.message };
     }
     
+    console.log(`Shard ${shard.id} uploaded successfully`);
     return { success: true, shardId: shard.id };
   } catch (error: any) {
+    console.error('Shard upload exception:', error);
     return { success: false, error: error.message || 'Upload failed' };
   }
 }
@@ -54,11 +60,14 @@ export async function uploadAllShards(
 ): Promise<{ success: boolean; shardIds?: string[]; error?: string }> {
   const shardIds: string[] = [];
   
+  console.log(`Starting upload of ${shards.length} shards for user ${userId}`);
+  
   for (let i = 0; i < shards.length; i++) {
     const result = await uploadShard(shards[i], userId);
     
     if (!result.success) {
       // Cleanup already uploaded shards on failure
+      console.error(`Failed at shard ${i + 1}, cleaning up...`);
       await cleanupShards(shardIds, userId);
       return { success: false, error: `Failed to upload shard ${i + 1}: ${result.error}` };
     }
@@ -67,6 +76,7 @@ export async function uploadAllShards(
     onProgress?.(i + 1, shards.length);
   }
   
+  console.log('All shards uploaded successfully:', shardIds);
   return { success: true, shardIds };
 }
 
@@ -78,13 +88,17 @@ export async function downloadShard(
   userId: string
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   try {
+    const supabase = getSupabase();
     const filePath = `${userId}/${shardId}`;
+    
+    console.log(`Downloading shard from ${filePath}`);
     
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
       .download(filePath);
     
     if (error) {
+      console.error('Shard download error:', error);
       return { success: false, error: error.message };
     }
     
@@ -93,12 +107,12 @@ export async function downloadShard(
     }
     
     // Convert blob to string
-    const arrayBuffer = await data.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const text = String.fromCharCode.apply(null, Array.from(uint8Array));
+    const text = await data.text();
     
+    console.log(`Shard ${shardId} downloaded, size: ${text.length}`);
     return { success: true, data: text };
   } catch (error: any) {
+    console.error('Shard download exception:', error);
     return { success: false, error: error.message || 'Download failed' };
   }
 }
@@ -113,6 +127,8 @@ export async function downloadAllShards(
   onProgress?: (current: number, total: number) => void
 ): Promise<{ success: boolean; shards?: Shard[]; error?: string }> {
   const shards: Shard[] = [];
+  
+  console.log(`Starting download of ${shardIds.length} shards`);
   
   for (let i = 0; i < shardIds.length; i++) {
     const result = await downloadShard(shardIds[i], userId);
@@ -130,6 +146,7 @@ export async function downloadAllShards(
     onProgress?.(i + 1, shardIds.length);
   }
   
+  console.log('All shards downloaded successfully');
   return { success: true, shards };
 }
 
@@ -141,6 +158,7 @@ export async function cleanupShards(
   userId: string
 ): Promise<void> {
   try {
+    const supabase = getSupabase();
     const filePaths = shardIds.map(id => `${userId}/${id}`);
     await supabase.storage.from(STORAGE_BUCKET).remove(filePaths);
   } catch (error) {
@@ -156,6 +174,7 @@ export async function deleteDocumentShards(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const supabase = getSupabase();
     const filePaths = shardIds.map(id => `${userId}/${id}`);
     const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(filePaths);
     
