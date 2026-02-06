@@ -9,7 +9,6 @@ import { Button } from '../../src/components/Button';
 import { LoadingOverlay } from '../../src/components/LoadingOverlay';
 import { useAuthStore } from '../../src/store/authStore';
 import { pickDocument, uploadDocument } from '../../src/services/vault/vaultService';
-import { checkBucketAccess } from '../../src/services/vault/storageService';
 import type { UploadProgress } from '../../src/types';
 
 export default function UploadScreen() {
