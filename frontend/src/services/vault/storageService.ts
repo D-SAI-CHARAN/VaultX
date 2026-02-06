@@ -12,22 +12,25 @@ export interface UploadResult {
 }
 
 /**
- * Check if storage bucket exists and is accessible
+ * Check if storage bucket is accessible by trying to list files
  */
 export async function checkBucketAccess(): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase.storage.getBucket(STORAGE_BUCKET);
+    // Just try to list - this works with regular auth
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list('', { limit: 1 });
     
     if (error) {
       console.error('Bucket access error:', error);
       return { 
         success: false, 
-        error: `Storage bucket "${STORAGE_BUCKET}" not found or not accessible. Please create it in Supabase Dashboard → Storage.` 
+        error: `Storage error: ${error.message}` 
       };
     }
     
-    console.log('Bucket access OK:', data);
+    console.log('Bucket access OK');
     return { success: true };
   } catch (error: any) {
     console.error('Bucket check exception:', error);
@@ -64,27 +67,6 @@ export async function uploadShard(
     
     if (error) {
       console.error('Shard upload error:', JSON.stringify(error));
-      
-      // Provide more specific error messages
-      if (error.message.includes('Bucket not found')) {
-        return { 
-          success: false, 
-          error: `Storage bucket "${STORAGE_BUCKET}" does not exist. Create it in Supabase Dashboard → Storage.` 
-        };
-      }
-      if (error.message.includes('row-level security') || error.message.includes('policy')) {
-        return { 
-          success: false, 
-          error: 'Storage policy error. Please add INSERT policy for the bucket in Supabase.' 
-        };
-      }
-      if (error.message.includes('Invalid JWT') || error.message.includes('not authenticated')) {
-        return { 
-          success: false, 
-          error: 'Authentication error. Please sign out and sign in again.' 
-        };
-      }
-      
       return { success: false, error: error.message };
     }
     
@@ -104,12 +86,6 @@ export async function uploadAllShards(
   userId: string,
   onProgress?: (current: number, total: number) => void
 ): Promise<{ success: boolean; shardIds?: string[]; error?: string }> {
-  // First check if bucket is accessible
-  const bucketCheck = await checkBucketAccess();
-  if (!bucketCheck.success) {
-    return { success: false, error: bucketCheck.error };
-  }
-  
   const shardIds: string[] = [];
   
   console.log(`Starting upload of ${shards.length} shards for user ${userId}`);
