@@ -1,5 +1,5 @@
 // VaultX Sign Up Screen
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,7 +16,16 @@ export default function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
   
-  const { signUp, isLoading, error, clearError } = useAuthStore();
+  const { signUp, isLoading, error, clearError, appState } = useAuthStore();
+
+  // Watch for state changes and navigate accordingly
+  useEffect(() => {
+    if (appState === 'AUTHENTICATED') {
+      // User is authenticated, go to PIN setup
+      console.log('Signup successful, navigating to PIN setup');
+      router.replace('/setup/pin');
+    }
+  }, [appState]);
 
   const validate = () => {
     const newErrors: typeof errors = {};
@@ -45,10 +54,11 @@ export default function SignUpScreen() {
     clearError();
     if (!validate()) return;
     
+    console.log('Attempting sign up...');
     const success = await signUp(email.trim().toLowerCase(), password);
-    if (success) {
-      router.replace('/setup/pin');
-    }
+    console.log('Sign up result:', success, 'App state:', appState);
+    
+    // Navigation will be handled by useEffect watching appState
   };
 
   return (
